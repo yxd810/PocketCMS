@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邮箱验证 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+</head>
+<body class="auth-page">
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <i class="fas fa-envelope"></i>
+                <h1>邮箱验证</h1>
+            </div>
+            <div id="status" class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>正在验证...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        
+        async function verifyEmail() {
+            const statusDiv = document.getElementById('status');
+            
+            if (!token) {
+                statusDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #f59e0b;"></i>
+                    <h2>无效的验证链接</h2>
+                    <p>请检查链接是否正确。</p>
+                    <a href="/login.html" class="btn btn-primary" style="margin-top: 1rem;">返回登录</a>
+                `;
+                return;
+            }
+            
+            try {
+                await pb.collection('users').confirmVerification(token);
+                statusDiv.innerHTML = `
+                    <i class="fas fa-check-circle" style="font-size: 3rem; color: #10b981;"></i>
+                    <h2>验证成功！</h2>
+                    <p>您的邮箱已通过验证，现在可以登录了。</p>
+                    <a href="/login.html" class="btn btn-primary" style="margin-top: 1rem;">立即登录</a>
+                `;
+            } catch (error) {
+                console.error('验证失败:', error);
+                statusDiv.innerHTML = `
+                    <i class="fas fa-times-circle" style="font-size: 3rem; color: #ef4444;"></i>
+                    <h2>验证失败</h2>
+                    <p>${error.message || '链接可能已过期，请重新注册或联系管理员。'}</p>
+                    <a href="/login.html" class="btn btn-primary" style="margin-top: 1rem;">返回登录</a>
+                `;
+            }
+        }
+        
+        verifyEmail();
+    </script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>首页 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+</head>
+<body>
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <div class="container">
+            <!-- 欢迎横幅 -->
+            <div class="welcome-banner" id="welcomeBanner">
+                <div class="welcome-text">
+                    <h1 id="welcomeTitle">Welcome to PocketCMS</h1>
+                </div>
+            </div>
+
+            <!-- 筛选栏 - 桌面端完整显示，移动端简化筛选 -->
+            <div class="filter-bar" id="filterBar">
+                <div class="desktop-filters">
+                    <span>类型:</span>
+                    <select id="typeFilter" class="filter-select">
+                        <option value="all">全部</option>
+                        <option value="article">文章</option>
+                        <option value="note">笔记</option>
+                        <option value="file">文件</option>
+                    </select>
+                    <span>显示:</span>
+                    <select id="visibilityFilter" class="filter-select">
+                        <option value="all">全部</option>
+                        <option value="public">公开</option>
+                        <option value="private">私有</option>
+                    </select>
+                    <span>每页:</span>
+                    <select id="perPageSelect" class="filter-select">
+                        <option value="10">10条/页</option>
+                        <option value="20">20条/页</option>
+                        <option value="50">50条/页</option>
+                    </select>
+                </div>
+                <!-- 分页和搜索（所有设备显示） -->
+                <div class="pagination-controls">
+                    <button id="prevPageBtn" class="page-btn">&lt;</button>
+                    <span id="pageInfo">第1页</span>
+                    <button id="nextPageBtn" class="page-btn">&gt;</button>
+                </div>
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="搜索...">
+                </div>
+            </div>
+
+            <!-- 内容列表 -->
+            <div id="contentList" class="content-grid">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 PocketCMS  by XIAODUO YIN.</p>
+        </div>
+    </footer>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+    <script>
+        let currentPage = 1;
+        let currentPerPage = 10;
+        let currentType = 'all';
+        let currentVisibility = 'all';
+        let currentSearch = '';
+        let isLoggedIn = false;
+        let currentUserId = null;
+        
+        // 检查登录状态
+        isLoggedIn = pb.authStore.isValid;
+        if (isLoggedIn) {
+            currentUserId = pb.authStore.model.id;
+        }
+        
+        // 更新欢迎横幅（已登录用户不显示欢迎横幅）
+        function updateWelcomeBanner() {
+            const welcomeBanner = document.querySelector('.welcome-banner');
+            if (!welcomeBanner) return;
+            
+            if (isLoggedIn) {
+                // 已登录用户隐藏欢迎横幅
+                welcomeBanner.style.display = 'none';
+            } else {
+                // 未登录用户显示欢迎横幅
+                welcomeBanner.style.display = 'flex';
+                const welcomeTitle = document.getElementById('welcomeTitle');
+                const welcomeDesc = document.getElementById('welcomeDesc');
+                if (welcomeTitle) welcomeTitle.textContent = 'PocketCMS';
+                if (welcomeDesc) welcomeDesc.textContent = '分享知识，记录思考';
+            }
+        }
+        
+        // 加载内容列表
+        async function loadContents() {
+            const container = document.getElementById('contentList');
+            container.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+            
+            let filter = '';
+            if (isLoggedIn) {
+                // 登录用户：公开内容 + 自己的私有内容
+                if (currentType !== 'all') filter = `type = "${currentType}"`;
+                if (currentVisibility === 'public') {
+                    filter = filter ? `${filter} && visibility = "public"` : `visibility = "public"`;
+                } else if (currentVisibility === 'private') {
+                    filter = filter ? `${filter} && visibility = "private" && author = "${currentUserId}"` : `visibility = "private" && author = "${currentUserId}"`;
+                }
+                // 搜索
+                if (currentSearch) {
+                    filter = filter ? `${filter} && title ~ "${currentSearch}"` : `title ~ "${currentSearch}"`;
+                }
+            } else {
+                // 未登录用户：只看公开内容
+                filter = `visibility = "public"`;
+                if (currentType !== 'all') filter += ` && type = "${currentType}"`;
+                if (currentSearch) filter += ` && title ~ "${currentSearch}"`;
+            }
+            
+            try {
+                const result = await pb.collection('contents').getList(currentPage, currentPerPage, {
+                    filter: filter,
+                    sort: '-created',
+                    expand: 'author'
+                });
+                
+                if (result.items.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>暂无内容</p></div>';
+                    document.getElementById('pageInfo').textContent = `第0页`;
+                    document.getElementById('prevPageBtn').disabled = true;
+                    document.getElementById('nextPageBtn').disabled = true;
+                    return;
+                }
+                
+                renderContentCards(result.items);
+                document.getElementById('pageInfo').textContent = `第${result.page}页 / 共${result.totalPages}页`;
+                document.getElementById('prevPageBtn').disabled = result.page <= 1;
+                document.getElementById('nextPageBtn').disabled = result.page >= result.totalPages;
+                
+            } catch (error) {
+                console.error('加载内容失败:', error);
+                container.innerHTML = '<div class="empty-state">加载失败，请刷新重试</div>';
+            }
+        }
+        
+        function renderContentCards(contents) {
+            const container = document.getElementById('contentList');
+            container.innerHTML = contents.map(content => {
+                let coverHtml = '';
+                if (content.cover && content.cover !== '') {
+                    const coverUrl = `/api/files/${content.collectionId}/${content.id}/${content.cover}?thumb=400x0`;
+                    coverHtml = `
+                        <div class="card-cover">
+                            <img src="${coverUrl}" alt="${escapeHtml(content.title)}">
+                        </div>
+                    `;
+                }
+                
+                const typeMap = { article: '文章', note: '笔记', file: '文件' };
+                const badgeClass = { article: 'badge-article', note: 'badge-note', file: 'badge-file' };
+                
+                let actionButtons = '';
+                if (isLoggedIn && content.author === currentUserId) {
+                    actionButtons = `
+                        <div class="card-actions">
+                            <a href="/content-edit.html?id=${content.id}" class="btn-icon" title="编辑"><i class="fas fa-edit"></i></a>
+                            <button onclick="deleteContent('${content.id}')" class="btn-icon btn-icon-danger" title="删除"><i class="fas fa-trash"></i></button>
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <div class="content-card">
+                        ${coverHtml}
+                        <div class="card-body">
+                            <div class="card-type">
+                                <span class="badge ${badgeClass[content.type]}">${typeMap[content.type]}</span>
+                                ${content.visibility === 'private' ? '<span class="badge badge-private"><i class="fas fa-lock"></i> 私有</span>' : ''}
+                            </div>
+                            <h3 class="card-title">
+                                <a href="/content-detail.html?id=${content.id}">${escapeHtml(content.title)}</a>
+                            </h3>
+                            <p class="card-summary">${escapeHtml((content.summary || content.content || '').substring(0, 120))}...</p>
+                            <div class="card-meta">
+                                <span><i class="fas fa-user"></i> ${escapeHtml(content.expand?.author?.name || content.expand?.author?.email || '匿名')}</span>
+                                <span><i class="fas fa-calendar"></i> ${formatDate(content.created)}</span>
+                                <span><i class="fas fa-eye"></i> ${content.view_count || 0}</span>
+                            </div>
+                            ${actionButtons}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        async function deleteContent(contentId) {
+            if (!confirm('确定要删除这个内容吗？')) return;
+            try {
+                await pb.collection('contents').delete(contentId);
+                showNotification('删除成功', 'success');
+                loadContents();
+            } catch (error) {
+                showNotification('删除失败: ' + error.message, 'error');
+            }
+        }
+        
+        function prevPage() { if (currentPage > 1) { currentPage--; loadContents(); } }
+        function nextPage() { currentPage++; loadContents(); }
+        
+        // 事件监听
+        document.getElementById('typeFilter').addEventListener('change', (e) => { currentType = e.target.value; currentPage = 1; loadContents(); });
+        document.getElementById('visibilityFilter').addEventListener('change', (e) => { currentVisibility = e.target.value; currentPage = 1; loadContents(); });
+        document.getElementById('perPageSelect').addEventListener('change', (e) => { currentPerPage = parseInt(e.target.value); currentPage = 1; loadContents(); });
+        document.getElementById('prevPageBtn').addEventListener('click', prevPage);
+        document.getElementById('nextPageBtn').addEventListener('click', nextPage);
+        
+        let searchTimeout;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentSearch = e.target.value;
+                currentPage = 1;
+                loadContents();
+            }, 500);
+        });
+        
+        // 初始化
+        if (isLoggedIn) {
+            document.getElementById('filterBar').style.display = 'flex';
+        }
+        updateWelcomeBanner();
+        loadContents();
+    </script>
+</body>
+</html>

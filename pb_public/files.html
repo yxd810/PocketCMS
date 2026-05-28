@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>文件管理 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+</head>
+<body>
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <div class="container">
+            <div class="page-header">
+                <h1><i class="fas fa-images"></i> 文件管理</h1>
+                <button class="btn btn-primary" onclick="openUploadModal()">
+                    <i class="fas fa-upload"></i> 上传文件
+                </button>
+            </div>
+            <!-- 筛选栏 -->
+            <div class="filter-bar">
+                <div class="desktop-filters">
+                    <span>显示:</span>
+                    <select id="visibilityFilter" class="filter-select">
+                        <option value="all">全部</option>
+                        <option value="public">公开</option>
+                        <option value="private">私有</option>
+                    </select>
+                    <span>每页:</span>
+                    <select id="perPageSelect" class="filter-select">
+                        <option value="12">12条/页</option>
+                        <option value="24">24条/页</option>
+                        <option value="48">48条/页</option>
+                    </select>
+                </div>
+                <!-- 分页与搜索 -->
+                <div class="pagination-controls">
+                    <button id="prevPageBtn" class="page-btn">&lt;</button>
+                    <span id="pageInfo">第1页</span>
+                    <button id="nextPageBtn" class="page-btn">&gt;</button>
+                </div>
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="搜索文件描述...">
+                </div>
+            </div>
+
+            <div id="filesGrid" class="files-grid">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 上传弹窗 -->
+    <div id="uploadModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-upload"></i> 上传文件</h3>
+                <button class="modal-close" onclick="closeUploadModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="dropZone" class="drop-zone">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>拖拽文件到此区域或点击选择</p>
+                    <small>支持图片、视频、PDF，最大2GB</small>
+                    <input type="file" id="fileInput" accept="image/*,video/*,application/pdf" style="display: none;">
+                </div>
+                
+                <div id="uploadPreview" style="display: none; margin-top: 1rem;">
+                    <div id="previewContent"></div>
+                </div>
+
+                <div class="upload-form">
+                    <div class="form-group">
+                        <label><i class="fas fa-align-left"></i> 文件描述</label>
+                        <input type="text" id="fileTitle" placeholder="请输入文件描述...">
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-globe"></i> 可见性</label>
+                        <select id="fileVisibility">
+                            <option value="private">🔒 私有 - 仅自己可见</option>
+                            <option value="public">🌍 公开 - 所有人可见</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeUploadModal()">取消</button>
+                <button id="uploadBtn" class="btn btn-primary" onclick="startUpload()" disabled>
+                    <i class="fas fa-upload"></i> 开始上传
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑弹窗 -->
+    <div id="editModal" class="modal" style="display: none;">
+        <div class="modal-content edit-modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-edit"></i> 编辑文件信息</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label><i class="fas fa-align-left"></i> 文件描述</label>
+                    <input type="text" id="editTitle" placeholder="请输入文件描述...">
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-globe"></i> 可见性</label>
+                    <select id="editVisibility">
+                        <option value="private">🔒 私有 - 仅自己可见</option>
+                        <option value="public">🌍 公开 - 所有人可见</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeEditModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveEdit()">保存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+
+    <script>
+        if (!requireAuth()) {
+            window.location.href = '/login.html';
+        }
+
+        let currentUser = pb.authStore.model;
+        let currentPage = 1;
+        let currentPerPage = 12;  
+        let currentFilter = 'all';
+        let currentSearch = '';
+        let selectedFile = null;
+        let editingFileId = null;
+        
+        function getFileIcon(fileType) {
+            if (fileType && fileType.startsWith('image/')) return '<i class="fas fa-image"></i>';
+            if (fileType && fileType.startsWith('video/')) return '<i class="fas fa-video"></i>';
+            if (fileType === 'application/pdf') return '<i class="fas fa-file-pdf"></i>';
+            return '<i class="fas fa-file"></i>';
+        }
+        
+        function formatFileSize(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showNotification(message, type) {
+            const old = document.querySelector('.notification');
+            if (old) old.remove();
+            const div = document.createElement('div');
+            div.className = `notification ${type}`;
+            div.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i><span>${message}</span>`;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+        
+        function getFileUrl(record, filename) {
+            return `/api/files/${record.collectionId}/${record.id}/${encodeURIComponent(filename)}`;
+        }
+        
+        function getThumbUrl(record, filename) {
+            if (record.file_type && record.file_type.startsWith('image/')) {
+                return `${getFileUrl(record, filename)}?thumb=200x200`;
+            }
+            return null;
+        }
+        
+        function renderFileCard(file) {
+            const isOwner = file.author === currentUser.id;
+            const fileName = file.file;
+            const thumbUrl = getThumbUrl(file, fileName);
+            const fileUrl = getFileUrl(file, fileName);
+            const hasThumb = thumbUrl !== null;
+            const escapedTitle = escapeHtml(file.title || '无描述');
+            
+            let previewHtml = '';
+            if (hasThumb) {
+                previewHtml = `<img src="${thumbUrl}" alt="${escapedTitle}">`;
+            } else {
+                previewHtml = `<div class="file-icon-large">${getFileIcon(file.file_type)}</div>`;
+            }
+            
+            let actionsHtml = `<a href="${fileUrl}" download class="btn-icon" title="下载"><i class="fas fa-download"></i></a>`;
+            if (isOwner) {
+                actionsHtml += `
+                    <button class="btn-icon" onclick="openEditModal('${file.id}', '${escapedTitle.replace(/'/g, "\\'")}', '${file.visibility}')" title="编辑"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon btn-icon-danger" onclick="deleteFile('${file.id}')" title="删除"><i class="fas fa-trash"></i></button>
+                `;
+            }
+            
+            return `
+                <div class="file-card">
+                    <div class="file-preview">${previewHtml}</div>
+                    <div class="file-info">
+                        <div class="file-title" title="${escapedTitle}">${escapedTitle}</div>
+                        <div class="file-meta">
+                            <span class="file-size">${formatFileSize(file.file_size)}</span>
+                            <span class="visibility-badge ${file.visibility === 'public' ? 'public' : 'private'}">
+                                <i class="fas ${file.visibility === 'public' ? 'fa-globe' : 'fa-lock'}"></i>
+                                ${file.visibility === 'public' ? '公开' : '私有'}
+                            </span>
+                        </div>
+                        <div class="file-time">${formatDate(file.created)}</div>
+                    </div>
+                    <div class="file-actions">${actionsHtml}</div>
+                </div>
+            `;
+        }
+        
+        async function loadFiles() {
+            const grid = document.getElementById('filesGrid');
+            grid.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+            
+            let filter = '';
+            const userId = currentUser.id;
+            
+            if (currentFilter === 'all') {
+                filter = `(visibility = "public" || author = "${userId}")`;
+            } else if (currentFilter === 'public') {
+                filter = `visibility = "public"`;
+            } else if (currentFilter === 'private') {
+                filter = `author = "${userId}" && visibility = "private"`;
+            }
+            if (currentSearch) filter += ` && title ~ "${currentSearch}"`;
+            
+            try {
+                const result = await pb.collection('images').getList(currentPage, currentPerPage, {
+                    filter: filter,
+                    sort: '-created',
+                    expand: 'author'
+                });
+                
+                if (result.items.length === 0) {
+                    grid.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>暂无文件，点击上传按钮添加文件</p></div>';
+                } else {
+                    grid.innerHTML = result.items.map(file => renderFileCard(file)).join('');
+                }
+                
+                // 更新分页控件
+                const pageInfo = document.getElementById('pageInfo');
+                const prevBtn = document.getElementById('prevPageBtn');
+                const nextBtn = document.getElementById('nextPageBtn');
+                
+                if (pageInfo) pageInfo.textContent = `${result.page} / ${result.totalPages}`;
+                if (prevBtn) prevBtn.disabled = result.page <= 1;
+                if (nextBtn) nextBtn.disabled = result.page >= result.totalPages;
+                
+            } catch (error) {
+                console.error('加载文件失败:', error);
+                grid.innerHTML = `<div class="error-state">加载失败: ${error.message}<br><button class="btn btn-outline" onclick="loadFiles()">重试</button></div>`;
+            }
+        }
+        
+        // 事件监听
+        document.getElementById('visibilityFilter').addEventListener('change', function(e) {
+            currentFilter = e.target.value;
+            currentPage = 1;
+            loadFiles();
+        });
+        document.getElementById('perPageSelect').addEventListener('change', function(e) {
+            currentPerPage = parseInt(e.target.value);
+            currentPage = 1;
+            loadFiles();
+        });
+        document.getElementById('prevPageBtn').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                loadFiles();
+            }
+        });
+        document.getElementById('nextPageBtn').addEventListener('click', () => {
+            currentPage++;
+            loadFiles();
+        });
+
+        let searchTimeout;
+        document.getElementById('searchInput').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentSearch = this.value;
+                currentPage = 1;
+                loadFiles();
+            }, 500);
+        });
+        
+        function openUploadModal() {
+            document.getElementById('uploadModal').style.display = 'flex';
+            document.getElementById('fileTitle').value = '';
+            document.getElementById('fileVisibility').value = 'private';
+            document.getElementById('uploadPreview').style.display = 'none';
+            selectedFile = null;
+            document.getElementById('uploadBtn').disabled = true;
+        }
+        
+        function closeUploadModal() { document.getElementById('uploadModal').style.display = 'none'; selectedFile = null; }
+        
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('drag-over'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) handleFileSelect(e.target.files[0]); });
+        
+        function handleFileSelect(file) {
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'application/pdf'];
+            if (!allowedTypes.includes(file.type)) { showNotification('不支持的文件类型，请上传图片、视频或PDF', 'error'); return; }
+            if (file.size > 2 * 1024 * 1024 * 1024) { showNotification('文件大小不能超过2GB', 'error'); return; }
+            
+            selectedFile = file;
+            const previewDiv = document.getElementById('previewContent');
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => { previewDiv.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 200px; border-radius: 8px;">`; };
+                reader.readAsDataURL(file);
+            } else if (file.type.startsWith('video/')) {
+                const url = URL.createObjectURL(file);
+                previewDiv.innerHTML = `<video style="max-width: 100%; max-height: 200px; border-radius: 8px;" controls><source src="${url}"></video>`;
+            } else if (file.type === 'application/pdf') {
+                previewDiv.innerHTML = `<div style="text-align: center; padding: 40px; background: #f1f5f9; border-radius: 8px;"><i class="fas fa-file-pdf" style="font-size: 48px; color: #ef4444;"></i><p>${file.name}</p></div>`;
+            }
+            document.getElementById('uploadPreview').style.display = 'block';
+            document.getElementById('uploadBtn').disabled = false;
+        }
+        
+        async function startUpload() {
+            if (!selectedFile) return;
+            const title = document.getElementById('fileTitle').value.trim();
+            const visibility = document.getElementById('fileVisibility').value;
+            const formData = new FormData();
+            formData.append('title', title || selectedFile.name);
+            formData.append('file', selectedFile);
+            formData.append('file_size', selectedFile.size);
+            formData.append('file_type', selectedFile.type);
+            formData.append('visibility', visibility);
+            formData.append('author', currentUser.id);
+            formData.append('source', 'file_manager');
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            const originalText = uploadBtn.innerHTML;
+            uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上传中...';
+            uploadBtn.disabled = true;
+            
+            try {
+                await pb.collection('images').create(formData);
+                showNotification('上传成功！', 'success');
+                closeUploadModal();
+                loadFiles();
+            } catch (error) {
+                console.error('上传失败:', error);
+                showNotification('上传失败: ' + error.message, 'error');
+                uploadBtn.innerHTML = originalText;
+                uploadBtn.disabled = false;
+            }
+        }
+        
+        function openEditModal(fileId, title, visibility) {
+            editingFileId = fileId;
+            document.getElementById('editTitle').value = title;
+            document.getElementById('editVisibility').value = visibility;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+        
+        function closeEditModal() { document.getElementById('editModal').style.display = 'none'; editingFileId = null; }
+        
+        async function saveEdit() {
+            const title = document.getElementById('editTitle').value.trim();
+            const visibility = document.getElementById('editVisibility').value;
+            if (!title) { showNotification('请输入文件描述', 'error'); return; }
+            try {
+                await pb.collection('images').update(editingFileId, { title: title, visibility: visibility });
+                showNotification('保存成功', 'success');
+                closeEditModal();
+                loadFiles();
+            } catch (error) { showNotification('保存失败: ' + error.message, 'error'); }
+        }
+        
+        async function deleteFile(fileId) {
+            if (!confirm('确定要删除此文件吗？此操作不可恢复。')) return;
+            try {
+                await pb.collection('images').delete(fileId);
+                showNotification('删除成功', 'success');
+                loadFiles();
+            } catch (error) { showNotification('删除失败: ' + error.message, 'error'); }
+        }
+        
+        loadFiles();
+    </script>
+    
+    <style>
+        /* 文件管理特有样式 */
+        .filter-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 0.5rem 1rem;
+            background: var(--white);
+            border: 1px solid var(--gray-light);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .filter-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        .edit-modal {
+            max-width: 450px;
+        }
+        .upload-form {
+            margin-top: 1.5rem;
+        }
+        @media (max-width: 768px) {
+            .filter-buttons {
+                justify-content: center;
+            }
+        }
+    </style>
+</body>
+</html>

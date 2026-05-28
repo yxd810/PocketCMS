@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>内容详情 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <div class="container">
+            <div id="content" class="detail-container">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const contentId = urlParams.get('id');
+        
+        if (!contentId) {
+            window.location.href = '/';
+        }
+        
+        async function loadContent() {
+            const container = document.getElementById('content');
+            container.innerHTML = '<div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+            
+            try {
+                const content = await pb.collection('contents').getOne(contentId, { expand: 'author' });
+                pb.collection('contents').update(contentId, { 'view_count+': 1 }).catch(e => console.log('浏览量更新失败:', e));
+                
+                const isLoggedIn = pb.authStore.isValid;
+                const isOwner = isLoggedIn && content.author === pb.authStore.model?.id;
+                const isAdmin = isLoggedIn && pb.authStore.model?.role === 'admin';
+                
+                if (content.visibility === 'private' && !isOwner && !isAdmin) {
+                    container.innerHTML = `<div class="card error-card"><i class="fas fa-lock"></i><h2>内容已加密</h2><p>此内容为私有，您无权访问。</p><a href="/" class="btn btn-primary">返回首页</a></div>`;
+                    return;
+                }
+                
+                renderContent(content, isOwner || isAdmin);
+            } catch (error) {
+                console.error('加载失败:', error);
+                if (error.status === 404) {
+                    container.innerHTML = `<div class="card error-card"><i class="fas fa-inbox"></i><h2>内容不存在</h2><p>该内容可能已被删除或不存在。</p><a href="/" class="btn btn-primary">返回首页</a></div>`;
+                } else if (error.status === 403) {
+                    container.innerHTML = `<div class="card error-card"><i class="fas fa-lock"></i><h2>无权访问</h2><p>您没有权限查看此内容。</p><a href="/" class="btn btn-primary">返回首页</a></div>`;
+                } else {
+                    container.innerHTML = `<div class="card error-card"><i class="fas fa-exclamation-triangle"></i><h2>加载失败</h2><p>请刷新页面重试。</p><button onclick="location.reload()" class="btn btn-primary">刷新页面</button></div>`;
+                }
+            }
+        }
+        
+        function renderContent(content, canEdit) {
+            const container = document.getElementById('content');
+            
+            let coverHtml = '';
+            if (content.cover && typeof content.cover === 'string' && content.cover.length > 0) {
+                const coverUrl = `/api/files/contents/${content.id}/${encodeURIComponent(content.cover)}`;
+                coverHtml = `<div class="content-cover"><img src="${coverUrl}" alt="${escapeHtml(content.title)}"></div>`;
+            }
+            
+            let tagsHtml = '';
+            if (content.tags && content.tags.length > 0) {
+                tagsHtml = `<div class="content-tags">${content.tags.map(tag => `<a href="/?tag=${encodeURIComponent(tag)}" class="tag-link">#${escapeHtml(tag)}</a>`).join('')}</div>`;
+            }
+            
+            let html = `
+                <div class="card">
+                    ${tagsHtml}
+                    ${coverHtml}
+                    <div class="content-header">
+                        <div class="card-type">
+                            <span class="type-badge type-${content.type}">
+                                <i class="fas ${getTypeIcon(content.type)}"></i> ${getTypeText(content.type)}
+                            </span>
+                            <span class="visibility-badge ${content.visibility}">
+                                <i class="fas ${getVisibilityIcon(content.visibility)}"></i> ${getVisibilityText(content.visibility)}
+                            </span>
+                        </div>
+                        <h1>${escapeHtml(content.title)}</h1>
+                        <div class="meta-info">
+                            <span><i class="fas fa-user"></i> ${escapeHtml(content.expand?.author?.name || content.expand?.author?.email || '匿名')}</span>
+                            <span><i class="fas fa-calendar"></i> ${new Date(content.created).toLocaleString()}</span>
+                            <span><i class="fas fa-eye"></i> ${content.view_count || 0} 次阅读</span>
+                        </div>
+                    </div>
+                    <div class="markdown-body">${marked.parse(content.content || '')}</div>
+            `;
+            
+            if (canEdit) {
+                html += `<div class="action-buttons"><a href="/content-edit.html?id=${content.id}" class="btn btn-primary">编辑</a><button onclick="deleteContent()" class="btn btn-danger">删除</button></div>`;
+            }
+            
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+        
+        async function deleteContent() {
+            if (!confirm('确定删除？')) return;
+            try {
+                await pb.collection('contents').delete(contentId);
+                window.location.href = '/content-list.html';
+            } catch (error) {
+                alert('删除失败');
+            }
+        }
+        
+        function getTypeText(type) {
+            const types = { article: '文章', note: '笔记', file: '文件' };
+            return types[type] || type;
+        }
+        
+        function getTypeIcon(type) {
+            const icons = { article: 'fa-newspaper', note: 'fa-pen', file: 'fa-file' };
+            return icons[type] || 'fa-file';
+        }
+        
+        function getVisibilityText(visibility) {
+            const vis = { public: '公开', private: '私有', shared: '分享' };
+            return vis[visibility] || visibility;
+        }
+        
+        function getVisibilityIcon(visibility) {
+            const icons = { public: 'fa-globe', private: 'fa-lock', shared: 'fa-share-alt' };
+            return icons[visibility] || 'fa-eye';
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        loadContent();
+    </script>
+    
+    <style>
+        /* 详情页专用样式 */
+        .detail-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        /* 图片显示优化 - 等比例缩放，显示更小 */
+        .markdown-body img {
+            max-width: 80%;
+            height: auto;
+            border-radius: 8px;
+            margin: 1rem auto;
+            display: block;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        /* 图片所在段落居中对齐 */
+        .markdown-body p:has(img) {
+            text-align: center;
+        }
+        
+        /* 移动端图片显示稍大 */
+        @media (max-width: 768px) {
+            .markdown-body img {
+                max-width: 95%;
+            }
+        }
+        
+        /* 暗色模式图片阴影 */
+        body.dark-mode .markdown-body img {
+            box-shadow: 0 1px 3px rgba(255,255,255,0.1);
+        }
+        
+        .card {
+            background: var(--white);
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            box-shadow: var(--shadow);
+        }
+        
+        .error-card {
+            text-align: center;
+            padding: 3rem;
+        }
+        
+        .error-card i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        
+        .error-card i.fa-lock { color: var(--danger); }
+        .error-card i.fa-inbox { color: var(--gray); }
+        .error-card i.fa-exclamation-triangle { color: var(--warning); }
+        
+        .content-cover {
+            margin-bottom: 2rem;
+        }
+        
+        .content-cover img {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            border-radius: var(--radius);
+            background: var(--gray-light);
+        }
+        
+        .content-header {
+            margin-bottom: 2rem;
+        }
+        
+        .content-header .card-type {
+            margin-bottom: 1rem;
+        }
+        
+        .content-header h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .meta-info {
+            display: flex;
+            gap: 1.5rem;
+            color: var(--gray);
+            font-size: 0.875rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--gray-light);
+            flex-wrap: wrap;
+        }
+        
+        .content-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+        
+        .action-buttons {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--gray-light);
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .visibility-badge.public { background: #dbeafe; color: #1e40af; }
+        .visibility-badge.private { background: #f1f5f9; color: #475569; }
+        .visibility-badge.shared { background: #e0e7ff; color: #3730a3; }
+        
+        body.dark-mode .visibility-badge.public { background: #106898; color: #88abda; }
+        body.dark-mode .visibility-badge.private { background: #3f486c; color: #88abda; }
+        body.dark-mode .visibility-badge.shared { background: #2b5e7d; color: #88abda; }
+        body.dark-mode .card { background: #1e293b; }
+        body.dark-mode .meta-info { border-bottom-color: #334155; }
+        body.dark-mode .action-buttons { border-top-color: #334155; }
+        body.dark-mode .content-cover img { background: #334155; }
+    </style>
+</body>
+</html>

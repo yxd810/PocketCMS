@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分享 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/js/site-config.js"></script>
+</head>
+<body>
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <div class="container">
+            <div id="content" class="share-container">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+    
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const shareToken = urlParams.get('token');
+        let currentContent = null;
+        
+        if (!shareToken) {
+            document.getElementById('content').innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>无效的分享链接</p></div>';
+        }
+        
+        async function loadSharedContent() {
+            try {
+                const result = await pb.collection('contents').getList(1, 1, {
+                    filter: `share_token = "${shareToken}" && (share_expires = "" || share_expires > "${new Date().toISOString()}")`
+                });
+                
+                if (result.items.length === 0) {
+                    document.getElementById('content').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-times-circle"></i>
+                            <p>分享链接无效或已过期</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                currentContent = result.items[0];
+                
+                if (currentContent.share_password && !sessionStorage.getItem(`share_auth_${shareToken}`)) {
+                    showPasswordDialog();
+                } else {
+                    showContent();
+                }
+            } catch (error) {
+                console.error('加载失败:', error);
+                document.getElementById('content').innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>加载失败，请稍后重试</p></div>';
+            }
+        }
+        
+        function showPasswordDialog() {
+            const html = `
+                <div class="auth-card">
+                    <div class="auth-header">
+                        <i class="fas fa-lock"></i>
+                        <h2>内容已加密</h2>
+                        <p>请输入访问密码</p>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="passwordInput" placeholder="请输入密码">
+                    </div>
+                    <button onclick="verifyPassword()" class="btn btn-primary btn-block">验证访问</button>
+                </div>
+            `;
+            document.getElementById('content').innerHTML = html;
+        }
+        
+        async function verifyPassword() {
+            const inputPassword = document.getElementById('passwordInput').value;
+            const storedPassword = atob(currentContent.share_password);
+            
+            if (inputPassword === storedPassword) {
+                sessionStorage.setItem(`share_auth_${shareToken}`, 'true');
+                showContent();
+            } else {
+                alert('密码错误，请重试');
+            }
+        }
+        
+        function showContent() {
+            pb.collection('contents').update(currentContent.id, { 'view_count+': 1 }).catch(e => console.error(e));
+            
+            let coverHtml = '';
+            if (currentContent.cover && typeof currentContent.cover === 'string' && currentContent.cover.length > 0) {
+                const coverUrl = `api/files/contents/${currentContent.id}/${encodeURIComponent(currentContent.cover)}`;
+                coverHtml = `<div class="content-cover"><img src="${coverUrl}" alt="${escapeHtml(currentContent.title)}"></div>`;
+            }
+            
+            let tagsHtml = '';
+            if (currentContent.tags && currentContent.tags.length > 0) {
+                tagsHtml = `<div class="content-tags">${currentContent.tags.map(tag => `<a href="/?tag=${encodeURIComponent(tag)}" class="tag-link">#${escapeHtml(tag)}</a>`).join('')}</div>`;
+            }
+            
+            const html = `
+                <div class="card">
+                    <div class="content-header">
+                        <div class="card-type">
+                            <span class="type-badge type-${currentContent.type}">
+                                <i class="fas ${getTypeIcon(currentContent.type)}"></i> ${getTypeText(currentContent.type)}
+                            </span>
+                        </div>
+                        <h1>${escapeHtml(currentContent.title)}</h1>
+                        <div class="meta-info">
+                            <span><i class="fas fa-calendar"></i> ${new Date(currentContent.created).toLocaleString()}</span>
+                            <span><i class="fas fa-eye"></i> ${currentContent.view_count || 0} 次阅读</span>
+                        </div>
+                    </div>
+                    ${tagsHtml}
+                    ${coverHtml}
+                    <div class="markdown-body">${marked.parse(currentContent.content || '')}</div>
+                    <div class="share-footer">
+                        <small>由 PocketCMS 提供分享支持</small>
+                    </div>
+                </div>
+            `;
+            document.getElementById('content').innerHTML = html;
+        }
+        
+        function getTypeText(type) {
+            const types = { article: '文章', note: '笔记', file: '文件' };
+            return types[type] || type;
+        }
+        
+        function getTypeIcon(type) {
+            const icons = { article: 'fa-newspaper', note: 'fa-pen', file: 'fa-file' };
+            return icons[type] || 'fa-file';
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        loadSharedContent();
+    </script>
+    
+    <style>
+        /* 分享页面特有样式 */
+        .share-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .share-footer {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--gray-light);
+            text-align: center;
+            color: var(--gray);
+            font-size: 0.75rem;
+        }
+        .auth-card {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        @media (max-width: 768px) {
+            .share-footer { margin-top: 1.5rem; }
+        }
+    </style>
+</body>
+</html>

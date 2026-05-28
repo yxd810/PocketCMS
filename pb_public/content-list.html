@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的内容 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+    <script src="/js/site-config.js"></script>
+</head>
+<body>
+    <!-- 导航栏 - 动态加载 -->
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <!-- 筛选栏 -->
+        <div class="filter-bar">
+            <!-- 筛选项 -->
+            <div class="desktop-filters">
+                <span>类型:</span>
+                <select id="typeFilter" class="filter-select">
+                    <option value="all">全部类型</option>
+                    <option value="article">文章</option>
+                    <option value="note">笔记</option>
+                    <option value="file">文件</option>
+                </select>
+                <span>显示:</span>
+                <select id="visibilityFilter" class="filter-select">
+                    <option value="all">全部可见性</option>
+                    <option value="public">公开</option>
+                    <option value="private">私有</option>
+                </select>
+                <span>排序:</span>
+                <select id="sortSelect" class="filter-select">
+                    <option value="-created">最新发布</option>
+                    <option value="created">最早发布</option>
+                    <option value="-view_count">最多阅读</option>
+                    <option value="view_count">最少阅读</option>
+                </select>
+            </div>
+            
+            <!-- 分页控件 -->
+            <div class="pagination-controls">
+                <button id="prevPageBtn" class="page-btn">&lt;</button>
+                <span id="pageInfo">第1页</span>
+                <button id="nextPageBtn" class="page-btn">&gt;</button>
+            </div>
+            
+            <!-- 搜索框 -->
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="搜索标题...">
+            </div>
+            
+            <!-- 创建按钮 -->
+            <a href="/content-edit.html" class="btn btn-primary create-btn-mobile">
+                <i class="fas fa-plus"></i>
+                <span>创建内容</span>
+            </a>
+        </div>
+
+        <!-- 内容网格 -->
+        <div id="contentGrid" class="content-grid">
+            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+        </div>
+    </main>
+
+    <!-- 分享设置弹窗 -->
+    <div id="shareModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; padding: 2rem; position: relative;">
+            <button onclick="closeShareModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 24px; cursor: pointer; color: #94a3b8;">
+                <i class="fas fa-times"></i>
+            </button>
+            <h3 style="margin-bottom: 1.5rem;"><i class="fas fa-share-alt"></i> 分享设置</h3>
+            <div id="shareModalContent"></div>
+            <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                <button id="saveShareBtn" onclick="saveShareSettings()" class="btn btn-primary">保存设置</button>
+                <button onclick="closeShareModal()" class="btn btn-outline">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+
+    <script>
+        // 需要登录
+        if (!requireAuth()) {
+            window.location.href = '/login.html';
+        }
+
+        const currentUser = pb.authStore.model;
+        let currentPage = 1;
+        let currentShareContent = null;
+        let currentShareToken = null;
+
+        // 加载内容列表
+        async function loadContents() {
+            const type = document.getElementById('typeFilter').value;
+            const visibility = document.getElementById('visibilityFilter').value;
+            const search = document.getElementById('searchInput').value;
+            const sort = document.getElementById('sortSelect').value;
+
+            let filter = `author = "${currentUser.id}"`;
+            if (type !== 'all') filter += ` && type = "${type}"`;
+            if (visibility !== 'all') filter += ` && visibility = "${visibility}"`;
+            if (search) {
+                filter = filter ? `${filter} && (title ~ "${search}" || content ~ "${search}")` : `(title ~ "${search}" || content ~ "${search}")`;
+            }
+            
+            try {
+                const result = await pb.collection('contents').getList(currentPage, 12, {
+                    filter: filter,
+                    sort: sort,
+                    fields: 'id,title,type,content,summary,cover,visibility,view_count,created,share_token'
+                });
+                
+                renderContents(result.items);
+                
+                // 更新分页控件
+                const pageInfo = document.getElementById('pageInfo');
+                const prevBtn = document.getElementById('prevPageBtn');
+                const nextBtn = document.getElementById('nextPageBtn');
+                
+                if (pageInfo) pageInfo.textContent = `第${result.page}页 / 共${result.totalPages}页`;
+                if (prevBtn) prevBtn.disabled = result.page <= 1;
+                if (nextBtn) nextBtn.disabled = result.page >= result.totalPages;
+                
+            } catch (error) {
+                console.error('加载失败:', error);
+                document.getElementById('contentGrid').innerHTML = '<div class="empty-state">加载失败，请刷新重试</div>';
+            }
+        }
+        
+        function renderContents(contents) {
+            const grid = document.getElementById('contentGrid');
+            if (contents.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>暂无内容，<a href="/content-edit.html">创建第一篇内容</a></p></div>';
+                return;
+            }
+            
+            grid.innerHTML = contents.map(content => {
+                let coverHtml = '';
+                if (content.cover && typeof content.cover === 'string' && content.cover.length > 0) {
+                    const coverUrl = `/api/files/contents/${content.id}/${encodeURIComponent(content.cover)}?thumb=400x0`;
+                    coverHtml = `
+                        <div class="card-cover" style="height: 200px; overflow: hidden; background: #f0f0f0;">
+                            <img src="${coverUrl}" alt="${escapeHtml(content.title)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div style="display: none; align-items: center; justify-content: center; height: 100%; color: #999;">
+                                <i class="fas fa-image"></i><span style="margin-left: 8px;">无封面</span>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                const hasShare = content.share_token && content.share_token !== '';
+                
+                return `
+                    <div class="content-card">
+                        ${coverHtml}
+                        <div class="card-body">
+                            <div class="card-type">
+                                <span class="type-badge type-${content.type}">
+                                    <i class="fas ${getTypeIcon(content.type)}"></i> ${getTypeText(content.type)}
+                                </span>
+                                <span class="visibility-badge" style="margin-left: 8px; font-size: 12px;">
+                                    <i class="fas ${content.visibility === 'public' ? 'fa-globe' : 'fa-lock'}"></i> ${content.visibility === 'public' ? '公开' : '私有'}
+                                </span>
+                                ${hasShare ? '<span style="margin-left: 8px; font-size: 11px; background: #e0e7ff; padding: 2px 6px; border-radius: 9999px;"><i class="fas fa-link"></i> 已分享</span>' : ''}
+                            </div>
+                            <h3 class="card-title">
+                                <a href="/content-detail.html?id=${content.id}">${escapeHtml(content.title)}</a>
+                            </h3>
+                            <p class="card-summary">${escapeHtml((content.summary || content.content || '').substring(0, 150))}...</p>
+                            <div class="card-meta">
+                                <span class="meta-item"><i class="fas fa-eye"></i> ${content.view_count || 0}</span>
+                                <span class="meta-item"><i class="fas fa-calendar"></i> ${formatDate(content.created)}</span>
+                            </div>
+                            <div class="card-actions" style="margin-top: 1rem; display: flex; gap: 8px; flex-wrap: wrap;">
+                                <a href="/content-detail.html?id=${content.id}" class="btn btn-outline" style="padding: 4px 12px; font-size: 12px;">查看</a>
+                                <a href="/content-edit.html?id=${content.id}" class="btn btn-outline" style="padding: 4px 12px; font-size: 12px;">编辑</a>
+                                <button onclick="openShareModal('${content.id}')" class="btn btn-outline" style="padding: 4px 12px; font-size: 12px;">
+                                    <i class="fas ${hasShare ? 'fa-cog' : 'fa-share'}"></i> ${hasShare ? '管理分享' : '生成分享'}
+                                </button>
+                                <button onclick="deleteContent('${content.id}')" class="btn btn-danger" style="padding: 4px 12px; font-size: 12px;">删除</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // 分页按钮事件
+        document.getElementById('prevPageBtn').addEventListener('click', () => {
+            if (currentPage > 1) { currentPage--; loadContents(); }
+        });
+        document.getElementById('nextPageBtn').addEventListener('click', () => {
+            currentPage++; loadContents();
+        });
+        
+        async function deleteContent(id) {
+            if (!confirm('确定要删除这个内容吗？此操作不可恢复。')) return;
+            try {
+                await pb.collection('contents').delete(id);
+                showNotification('删除成功', 'success');
+                loadContents();
+            } catch (error) {
+                showNotification('删除失败: ' + error.message, 'error');
+            }
+        }
+        
+        function generateShareToken() {
+            return 'share_' + Date.now() + '_' + Math.random().toString(36).substring(2, 18);
+        }
+        
+        async function openShareModal(contentId) {
+            try {
+                const content = await pb.collection('contents').getOne(contentId);
+                currentShareContent = content;
+                
+                if (content.share_token && content.share_token !== '') {
+                    currentShareToken = content.share_token;
+                } else {
+                    currentShareToken = generateShareToken();
+                }
+                
+                const hasShare = content.share_token && content.share_token !== '';
+                const shareUrl = `${window.location.origin}/share-view.html?token=${currentShareToken}`;
+                const sharePassword = content.share_password ? atob(content.share_password) : '';
+                
+                let expiryValue = '';
+                if (content.share_expires) {
+                    const expiryDate = new Date(content.share_expires);
+                    const now = new Date();
+                    const daysDiff = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+                    if (daysDiff === 1) expiryValue = '1';
+                    else if (daysDiff === 7) expiryValue = '7';
+                    else if (daysDiff === 30) expiryValue = '30';
+                    else if (daysDiff === 90) expiryValue = '90';
+                }
+                
+                const copyEnabled = hasShare;
+                
+                const modalContent = `
+                    <div class="form-group">
+                        <label><i class="fas fa-link"></i> 分享链接</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="shareLink" value="${shareUrl}" readonly style="flex: 1; background: #f1f5f9; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <button type="button" id="copyLinkBtn" onclick="copyShareLink()" class="btn btn-outline" style="padding: 8px 12px;" ${copyEnabled ? '' : 'disabled'}>
+                                <i class="fas fa-copy"></i> 复制
+                            </button>
+                        </div>
+                        ${!hasShare ? '<small style="color: #f59e0b;"><i class="fas fa-info-circle"></i> 点击"保存设置"后即可复制链接</small>' : ''}
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-lock"></i> 访问密码（可选）</label>
+                        <input type="text" id="sharePassword" value="${escapeHtml(sharePassword)}" placeholder="留空表示不需要密码" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <small style="color: #64748b;">设置密码后，访问分享链接需要输入密码</small>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-calendar-alt"></i> 过期时间</label>
+                        <select id="shareExpiry" style="width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <option value="">永不过期</option>
+                            <option value="1" ${expiryValue === '1' ? 'selected' : ''}>1天后过期</option>
+                            <option value="7" ${expiryValue === '7' ? 'selected' : ''}>7天后过期</option>
+                            <option value="30" ${expiryValue === '30' ? 'selected' : ''}>30天后过期</option>
+                            <option value="90" ${expiryValue === '90' ? 'selected' : ''}>90天后过期</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="background: #f8fafc; padding: 12px; border-radius: 8px;">
+                        <label>当前状态</label>
+                        <div>
+                            ${hasShare ? 
+                                '<span style="color: #10b981;"><i class="fas fa-check-circle"></i> 已启用分享</span>' : 
+                                '<span style="color: #64748b;"><i class="fas fa-info-circle"></i> 未启用分享，保存后将生成分享链接</span>'}
+                        </div>
+                    </div>
+                `;
+                
+                document.getElementById('shareModalContent').innerHTML = modalContent;
+                document.getElementById('shareModal').style.display = 'flex';
+            } catch (error) {
+                console.error('加载分享设置失败:', error);
+                showNotification('加载失败: ' + error.message, 'error');
+            }
+        }
+        
+        function closeShareModal() {
+            document.getElementById('shareModal').style.display = 'none';
+            currentShareContent = null;
+            currentShareToken = null;
+        }
+        
+        function copyShareLink() {
+            const linkInput = document.getElementById('shareLink');
+            if (!linkInput || !linkInput.value) {
+                showNotification('分享链接无效', 'error');
+                return;
+            }
+            linkInput.select();
+            document.execCommand('copy');
+            showNotification('链接已复制到剪贴板', 'success');
+        }
+        
+        async function saveShareSettings() {
+            if (!currentShareContent) {
+                showNotification('请重新打开分享设置', 'error');
+                return;
+            }
+            
+            const password = document.getElementById('sharePassword').value;
+            const expirySelect = document.getElementById('shareExpiry').value;
+            
+            const updateData = {};
+            updateData.share_token = currentShareToken;
+            
+            if (password && password.trim() !== '') {
+                updateData.share_password = btoa(password.trim());
+            } else {
+                updateData.share_password = '';
+            }
+            
+            if (expirySelect && expirySelect !== '') {
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + parseInt(expirySelect));
+                updateData.share_expires = expiryDate.toISOString();
+            } else {
+                updateData.share_expires = '';
+            }
+            
+            const saveBtn = document.getElementById('saveShareBtn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+            saveBtn.disabled = true;
+            
+            try {
+                const result = await pb.collection('contents').update(currentShareContent.id, updateData);
+                
+                const newShareUrl = `${window.location.origin}/share-view.html?token=${result.share_token}`;
+                const shareLinkInput = document.getElementById('shareLink');
+                if (shareLinkInput) shareLinkInput.value = newShareUrl;
+                
+                const copyBtn = document.getElementById('copyLinkBtn');
+                if (copyBtn) copyBtn.disabled = false;
+                
+                const statusDiv = document.querySelector('#shareModalContent .form-group:last-child div');
+                if (statusDiv) statusDiv.innerHTML = '<span style="color: #10b981;"><i class="fas fa-check-circle"></i> 已启用分享</span>';
+                
+                showNotification('分享设置已保存！链接已生成', 'success');
+                await loadContents();
+                
+            } catch (error) {
+                console.error('保存失败:', error);
+                showNotification('保存失败: ' + (error.message || '请重试'), 'error');
+            } finally {
+                saveBtn.innerHTML = originalText;
+                saveBtn.disabled = false;
+            }
+        }
+        
+        function getTypeText(type) {
+            const types = { article: '文章', note: '笔记', file: '文件' };
+            return types[type] || type;
+        }
+        
+        function getTypeIcon(type) {
+            const icons = { article: 'fa-newspaper', note: 'fa-pen', file: 'fa-file' };
+            return icons[type] || 'fa-file';
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return `${date.getMonth()+1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showNotification(message, type) {
+            const old = document.querySelector('.notification');
+            if (old) old.remove();
+            const div = document.createElement('div');
+            div.className = `notification ${type}`;
+            div.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i><span>${message}</span>`;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        // 事件监听
+        document.getElementById('typeFilter').addEventListener('change', () => { currentPage = 1; loadContents(); });
+        document.getElementById('visibilityFilter').addEventListener('change', () => { currentPage = 1; loadContents(); });
+        document.getElementById('sortSelect').addEventListener('change', () => { currentPage = 1; loadContents(); });
+        
+        let searchTimeout;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadContents();
+            }, 500);
+        });
+        
+        // 初始化
+        loadContents();
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# PocketBase 可执行文件
+pocketbase.exe
+pocketbase
+
+# 数据库文件（敏感数据）
+pb_data/
+*.db
+*.db-shm
+*.db-wal
+
+# 备份文件
+backups/
+*.zip
+*.tar.gz
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+
+# 临时文件
+tmp/
+temp/
+
+# 笔记
+notes/

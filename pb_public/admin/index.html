@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>管理台 - PocketCMS</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/fontawesome/css/all.css">
+    <script src="/js/site-config.js"></script>
+</head>
+<body>
+    <div id="navbar-container"></div>
+
+    <main class="main-content">
+        <div class="container">
+            <div id="accessDenied" class="error-card" style="display: none;">
+                <i class="fas fa-lock"></i>
+                <h2>访问被拒绝</h2>
+                <p>您没有管理员权限，无法访问此页面。</p>
+                <a href="/dashboard.html" class="btn btn-primary">返回仪表盘</a>
+            </div>
+
+            <div id="adminContent" style="display: none;">
+                <div class="admin-tabs">
+                    <button class="tab-btn active" onclick="showTab('dashboard')">
+                        <i class="fas fa-chart-line"></i> 概览
+                    </button>
+                    <button class="tab-btn" onclick="showTab('users')">
+                        <i class="fas fa-users"></i> 用户管理
+                    </button>
+                    <button class="tab-btn" onclick="showTab('contents')">
+                        <i class="fas fa-file-alt"></i> 内容管理
+                    </button>
+                    <button class="tab-btn" onclick="showTab('settings')">
+                        <i class="fas fa-cog"></i> 系统设置
+                    </button>
+                    <button class="tab-btn" onclick="exportAllUsersData()">
+                        <i class="fas fa-download"></i> 数据备份
+                    </button>
+                </div>
+
+                <!-- 概览标签页 -->
+                <div id="tab-dashboard" class="tab-content active">
+                    <h2><i class="fas fa-chart-line"></i> 系统概览</h2>
+                    <div class="stats-grid" id="adminStats">
+                        <div class="stat-card">
+                            <i class="fas fa-users"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statUsers">-</span>
+                                <span class="stat-label">总用户数</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-file-alt"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statContents">-</span>
+                                <span class="stat-label">总内容数</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-eye"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statViews">-</span>
+                                <span class="stat-label">总阅读量</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-share-alt"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statShared">-</span>
+                                <span class="stat-label">已分享内容</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="recent-section">
+                        <h3><i class="fas fa-clock"></i> 最近注册用户</h3>
+                        <div id="recentUsers" class="data-table-container">
+                            <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 用户管理标签页 -->
+                <div id="tab-users" class="tab-content">
+                    <h2><i class="fas fa-users"></i> 用户管理</h2>
+                    <div class="filter-bar">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="userSearch" placeholder="搜索用户邮箱...">
+                        </div>
+                    </div>
+                    <div id="usersList" class="data-table-container">
+                        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+                    </div>
+                    <div id="userPagination" class="pagination"></div>
+                </div>
+
+                <!-- 内容管理标签页 -->
+                <div id="tab-contents" class="tab-content">
+                    <h2><i class="fas fa-file-alt"></i> 内容管理</h2>
+                    <div class="filter-bar">
+                        <select id="contentTypeFilter" class="filter-select">
+                            <option value="all">全部类型</option>
+                            <option value="article">文章</option>
+                            <option value="note">笔记</option>
+                            <option value="file">文件</option>
+                        </select>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="contentSearch" placeholder="搜索标题...">
+                        </div>
+                    </div>
+                    <div id="adminContentsList" class="data-table-container">
+                        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+                    </div>
+                    <div id="contentPagination" class="pagination"></div>
+                </div>
+
+                <!-- 系统设置标签页 -->
+                <div id="tab-settings" class="tab-content">
+                    <h2><i class="fas fa-cog"></i> 系统设置</h2>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label><i class="fas fa-globe"></i> 站点名称</label>
+                            <input type="text" id="siteName" placeholder="PocketCMS">
+                            <small>显示在页面标题和导航栏</small>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-user-plus"></i> 允许用户注册</label>
+                            <select id="allowRegistration">
+                                <option value="true">开启</option>
+                                <option value="false">关闭</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-file-upload"></i> 最大文件上传大小 (MB)</label>
+                            <input type="number" id="maxFileSize" value="2" step="1" min="1" max="2048">
+                            <small>默认 2MB，最大 2048MB (2GB)</small>
+                        </div>
+                        <div class="form-actions">
+                            <button onclick="saveSettings()" class="btn btn-primary">
+                                <i class="fas fa-save"></i> 保存设置
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://unpkg.com/pocketbase@0.21.5/dist/pocketbase.umd.js"></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/nav.js"></script>
+
+    <script>
+        if (!requireAuth()) {
+            window.location.href = '/login.html';
+        }
+        
+        let currentUser = null;
+        let isAdminUser = false;
+        let userPage = 1;
+        let contentPage = 1;
+        
+        // ========================================
+        // 数据导出功能
+        // ========================================
+
+        async function exportUserData(userId) {
+            try {
+                showNotification('正在导出用户数据...', 'info');
+                const user = await pb.collection('users').getOne(userId);
+                const contents = await pb.collection('contents').getFullList({ filter: `author = "${userId}"`, sort: '-created' });
+                const files = await pb.collection('images').getFullList({ filter: `author = "${userId}"`, sort: '-created' });
+                
+                const exportData = {
+                    exportedAt: new Date().toISOString(),
+                    user: { id: user.id, email: user.email, name: user.name, role: user.role, bio: user.bio, created: user.created, updated: user.updated },
+                    contents: contents.map(c => ({ id: c.id, title: c.title, type: c.type, content: c.content, summary: c.summary, visibility: c.visibility, tags: c.tags, view_count: c.view_count, created: c.created, updated: c.updated })),
+                    files: files.map(f => ({ id: f.id, title: f.title, file: f.file, file_size: f.file_size, file_type: f.file_type, visibility: f.visibility, created: f.created }))
+                };
+                
+                const jsonStr = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `user_${user.email}_export_${new Date().toISOString().slice(0,19)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showNotification('导出成功', 'success');
+            } catch (error) {
+                console.error('导出失败:', error);
+                showNotification('导出失败: ' + error.message, 'error');
+            }
+        }
+
+        async function exportAllUsersData() {
+            if (!confirm('导出所有用户数据可能需要较长时间，确定继续吗？')) return;
+            try {
+                showNotification('正在导出所有用户数据...', 'info');
+                const users = await pb.collection('users').getFullList();
+                const allData = [];
+                for (const user of users) {
+                    const contents = await pb.collection('contents').getFullList({ filter: `author = "${user.id}"` });
+                    const files = await pb.collection('images').getFullList({ filter: `author = "${user.id}"` });
+                    allData.push({
+                        user: { id: user.id, email: user.email, name: user.name, role: user.role, bio: user.bio, created: user.created },
+                        contentCount: contents.length, fileCount: files.length,
+                        contents: contents.map(c => ({ id: c.id, title: c.title, type: c.type, visibility: c.visibility, view_count: c.view_count, created: c.created })),
+                        files: files.map(f => ({ id: f.id, title: f.title, file: f.file, file_size: f.file_size, file_type: f.file_type, created: f.created }))
+                    });
+                }
+                const exportData = { exportedAt: new Date().toISOString(), totalUsers: users.length, users: allData };
+                const jsonStr = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `all_users_export_${new Date().toISOString().slice(0,19)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showNotification('导出成功', 'success');
+            } catch (error) {
+                console.error('导出失败:', error);
+                showNotification('导出失败: ' + error.message, 'error');
+            }
+        }
+
+        async function checkAdminPermission() {
+            try {
+                const userId = pb.authStore.model.id;
+                currentUser = await pb.collection('users').getOne(userId);
+                isAdminUser = currentUser.role === 'admin';
+                if (isAdminUser) {
+                    document.getElementById('adminContent').style.display = 'block';
+                    document.getElementById('accessDenied').style.display = 'none';
+                    await loadAdminStats();
+                    await loadRecentUsers();
+                    await loadUsers();
+                    await loadAdminContents();
+                    loadSettings();
+                } else {
+                    document.getElementById('adminContent').style.display = 'none';
+                    document.getElementById('accessDenied').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('权限验证失败:', error);
+                document.getElementById('adminContent').style.display = 'none';
+                document.getElementById('accessDenied').style.display = 'block';
+            }
+        }
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        async function loadAdminStats() {
+            try {
+                let allUsers = [], allContents = [], page = 1;
+                while (true) {
+                    const result = await pb.collection('users').getList(page, 100);
+                    allUsers = allUsers.concat(result.items);
+                    if (result.items.length < 100) break;
+                    page++;
+                }
+                page = 1;
+                while (true) {
+                    const result = await pb.collection('contents').getList(page, 100);
+                    allContents = allContents.concat(result.items);
+                    if (result.items.length < 100) break;
+                    page++;
+                }
+                const sharedContents = allContents.filter(c => c.share_token && c.share_token !== '');
+                const totalViews = allContents.reduce((sum, c) => sum + (c.view_count || 0), 0);
+                document.getElementById('statUsers').textContent = allUsers.length;
+                document.getElementById('statContents').textContent = allContents.length;
+                document.getElementById('statViews').textContent = totalViews;
+                document.getElementById('statShared').textContent = sharedContents.length;
+            } catch (error) { console.error('加载统计数据失败:', error); }
+        }
+        
+        function getUserDisplayEmail(user) {
+            if (user.email && user.email !== '') return escapeHtml(user.email);
+            if (user.username) return escapeHtml(user.username);
+            if (user.name) return escapeHtml(user.name);
+            return '[邮箱隐藏]';
+        }
+        
+        async function loadRecentUsers() {
+            const container = document.getElementById('recentUsers');
+            try {
+                const result = await pb.collection('users').getList(1, 5, { sort: '-created' });
+                if (result.items.length === 0) { container.innerHTML = '<div class="empty-state">暂无用户</div>'; return; }
+                container.innerHTML = `<table class="data-table"><thead><tr><th>邮箱/标识</th><th>昵称</th><th>角色</th><th>注册时间</th></tr></thead><tbody>${result.items.map(user => `<tr><td>${getUserDisplayEmail(user)}</td><td>${escapeHtml(user.name || '-')}</td><td><span class="role-badge ${user.role === 'admin' ? 'role-admin' : 'role-user'}">${user.role === 'admin' ? '管理员' : '普通用户'}</span></td><td>${formatDate(user.created)}</td></tr>`).join('')}</tbody></table>`;
+            } catch (error) { container.innerHTML = '<div class="error-state">加载失败</div>'; }
+        }
+        
+        async function getUserContentCount(userId) {
+            try {
+                const result = await pb.collection('contents').getList(1, 1, { filter: `author = "${userId}"` });
+                return result.totalItems;
+            } catch { return 0; }
+        }
+        
+        async function loadUsers() {
+            const search = document.getElementById('userSearch').value;
+            let filter = search ? `email ~ "${search}" || name ~ "${search}" || username ~ "${search}"` : '';
+            const container = document.getElementById('usersList');
+            try {
+                const result = await pb.collection('users').getList(userPage, 10, { filter: filter, sort: '-created' });
+                if (result.items.length === 0) { container.innerHTML = '<div class="empty-state">暂无用户</div>'; renderUserPagination(0, 1); return; }
+                const userRows = [];
+                for (const user of result.items) {
+                    const contentCount = await getUserContentCount(user.id);
+                    userRows.push(`<tr><td>${getUserDisplayEmail(user)}</td><td>${escapeHtml(user.name || '-')}</td><td><select class="role-select" onchange="updateUserRole('${user.id}', this.value)"><option value="user" ${user.role === 'user' ? 'selected' : ''}>普通用户</option><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option></select></td><td>${contentCount}</td><td>${formatDate(user.created)}</td><td><button class="btn-icon" onclick="exportUserData('${user.id}')" title="导出数据"><i class="fas fa-download"></i></button><button class="btn-danger-small" onclick="deleteUser('${user.id}')" ${user.id === currentUser.id ? 'disabled' : ''}><i class="fas fa-trash"></i> 删除</button></td></tr>`);
+                }
+                container.innerHTML = `<table class="data-table"><thead><tr><th>邮箱/标识</th><th>昵称</th><th>角色</th><th>内容数</th><th>注册时间</th><th>操作</th></tr></thead><tbody>${userRows.join('')}</tbody></table>`;
+                renderUserPagination(result.totalPages, result.page);
+            } catch (error) { container.innerHTML = '<div class="error-state">加载失败</div>'; }
+        }
+        
+        function renderUserPagination(totalPages, current) {
+            const container = document.getElementById('userPagination');
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            let html = '';
+            for (let i = 1; i <= Math.min(totalPages, 5); i++) html += `<button class="page-btn ${i === current ? 'active' : ''}" onclick="goToUserPage(${i})">${i}</button>`;
+            container.innerHTML = html;
+        }
+        
+        function goToUserPage(page) { userPage = page; loadUsers(); }
+        
+        async function updateUserRole(userId, role) {
+            try {
+                await pb.collection('users').update(userId, { role: role });
+                showNotification('用户角色已更新', 'success');
+                await loadUsers(); await loadRecentUsers(); await loadAdminStats();
+            } catch (error) { showNotification('更新失败: ' + error.message, 'error'); }
+        }
+        
+        async function deleteUser(userId) {
+            let userEmail = '';
+            try { const user = await pb.collection('users').getOne(userId); userEmail = user.email; } catch(e) {}
+            if (!confirm(`确定要永久删除用户 ${userEmail} 吗？\n\n⚠️ 此操作将同时删除：\n- 该用户的所有内容\n- 该用户的所有文件记录\n- 该用户的评论\n\n此操作不可恢复！`)) return;
+            try {
+                showNotification('正在删除用户数据...', 'info');
+                const contents = await pb.collection('contents').getFullList({ filter: `author = "${userId}"` });
+                for (const content of contents) await pb.collection('contents').delete(content.id);
+                const files = await pb.collection('images').getFullList({ filter: `author = "${userId}"` });
+                for (const file of files) await pb.collection('images').delete(file.id);
+                try {
+                    const comments = await pb.collection('comments').getFullList({ filter: `author = "${userId}"` });
+                    for (const comment of comments) await pb.collection('comments').delete(comment.id);
+                } catch(e) {}
+                await pb.collection('users').delete(userId);
+                showNotification('用户已永久删除', 'success');
+                await loadUsers(); await loadAdminStats(); await loadRecentUsers();
+            } catch (error) { showNotification('删除失败: ' + error.message, 'error'); }
+        }
+        
+        async function loadAdminContents() {
+            const type = document.getElementById('contentTypeFilter').value;
+            const search = document.getElementById('contentSearch').value;
+            let filter = type !== 'all' ? `type = "${type}"` : '';
+            if (search) filter += filter ? ` && title ~ "${search}"` : `title ~ "${search}"`;
+            const container = document.getElementById('adminContentsList');
+            try {
+                const result = await pb.collection('contents').getList(contentPage, 10, { filter: filter, sort: '-created', expand: 'author' });
+                if (result.items.length === 0) { container.innerHTML = '<div class="empty-state">暂无内容</div>'; renderContentPagination(0, 1); return; }
+                container.innerHTML = `<table class="data-table"><thead><tr><th>标题</th><th>类型</th><th>作者</th><th>可见性</th><th>阅读量</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${result.items.map(content => `<tr><td><a href="/content-detail.html?id=${content.id}" target="_blank">${escapeHtml(content.title)}</a></td><td>${getTypeText(content.type)}</td><td>${escapeHtml(content.expand?.author?.email || content.expand?.author?.name || '未知')}</td><td>${content.visibility === 'public' ? '公开' : '私有'}</td><td>${content.view_count || 0}</td><td>${formatDate(content.created)}</td><td><button class="btn-danger-small" onclick="deleteContentAdmin('${content.id}')"><i class="fas fa-trash"></i> 删除</button></td></tr>`).join('')}</tbody></table>`;
+                renderContentPagination(result.totalPages, result.page);
+            } catch (error) { container.innerHTML = '<div class="error-state">加载失败</div>'; }
+        }
+        
+        function renderContentPagination(totalPages, current) {
+            const container = document.getElementById('contentPagination');
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            let html = '';
+            for (let i = 1; i <= Math.min(totalPages, 5); i++) html += `<button class="page-btn ${i === current ? 'active' : ''}" onclick="goToContentPage(${i})">${i}</button>`;
+            container.innerHTML = html;
+        }
+        
+        function goToContentPage(page) { contentPage = page; loadAdminContents(); }
+        
+        async function deleteContentAdmin(contentId) {
+            if (!confirm('确定要删除此内容吗？')) return;
+            try {
+                await pb.collection('contents').delete(contentId);
+                showNotification('内容已删除', 'success');
+                await loadAdminContents(); await loadAdminStats();
+            } catch (error) { showNotification('删除失败: ' + error.message, 'error'); }
+        }
+        
+        function loadSettings() {
+            const siteName = localStorage.getItem('siteName') || 'PocketCMS';
+            const allowRegistration = localStorage.getItem('allowRegistration') !== 'false';
+            const maxFileSize = localStorage.getItem('maxFileSize') || '2';
+            document.getElementById('siteName').value = siteName;
+            document.getElementById('allowRegistration').value = allowRegistration ? 'true' : 'false';
+            document.getElementById('maxFileSize').value = maxFileSize;
+        }
+        
+        function broadcastSiteNameChange() {
+            const siteName = localStorage.getItem('siteName') || 'PocketCMS';
+            document.title = siteName + ' - 管理后台';
+            document.querySelectorAll('.logo span').forEach(span => span.textContent = siteName);
+        }
+        
+        function saveSettings() {
+            const siteName = document.getElementById('siteName').value;
+            const allowRegistration = document.getElementById('allowRegistration').value === 'true';
+            const maxFileSize = document.getElementById('maxFileSize').value;
+            localStorage.setItem('siteName', siteName);
+            localStorage.setItem('allowRegistration', allowRegistration);
+            localStorage.setItem('maxFileSize', maxFileSize);
+            broadcastSiteNameChange();
+            showNotification('设置已保存', 'success');
+            if (!allowRegistration) showNotification('提示：注册功能已关闭，新用户无法注册', 'info');
+        }
+        
+        document.getElementById('userSearch').addEventListener('input', () => { userPage = 1; loadUsers(); });
+        document.getElementById('contentTypeFilter').addEventListener('change', () => { contentPage = 1; loadAdminContents(); });
+        document.getElementById('contentSearch').addEventListener('input', () => { contentPage = 1; loadAdminContents(); });
+        
+        broadcastSiteNameChange();
+        checkAdminPermission();
+    </script>
+    
+    <style>
+        /* 管理员后台特有样式（全局已有大部分，仅保留特有部分） */
+        .pagination {
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .recent-section h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+        .settings-form {
+            max-width: 500px;
+        }
+        .settings-form small {
+            font-size: 0.7rem;
+            color: var(--gray);
+        }
+        .filter-bar {
+            margin-bottom: 1.5rem;
+        }
+        .btn-icon {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            color: var(--primary);
+            transition: all 0.2s;
+        }
+        .btn-icon:hover {
+            background: #e0e7ff;
+        }
+        body.dark-mode .btn-icon:hover {
+            background: #334155;
+        }
+        @media (max-width: 768px) {
+            .settings-form { max-width: 100%; }
+        }
+
+        .data-table a {
+            text-decoration: underline;
+            color: inherit;
+        }
+
+        .data-table a:hover {
+            color: var(--primary);
+        }
+
+        /* 暗色主题下的链接样式 */
+        body.dark-mode .data-table a {
+            color: inherit;
+            text-decoration: underline;
+        }
+
+        body.dark-mode .data-table a:hover {
+            color: var(--primary);
+        }
+    </style>
+</body>
+</html>
